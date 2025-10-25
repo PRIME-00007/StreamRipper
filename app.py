@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, send_file, jsonify, after_thi
 import os
 import traceback
 import requests
-from downloader import download_media, download_audio  # your existing downloader logic
+from downloader import download_media, download_audio, get_media_info  # your existing downloader logic
 
 app = Flask(__name__)
 
@@ -10,8 +10,9 @@ app = Flask(__name__)
 INVIDIOUS_INSTANCES = [
     "https://invidious.snopyta.org",
     "https://yewtu.be",
-    "https://invidious.kavin.rocks"
-]  # fallback multiple instances
+    "https://vid.puffyan.us",
+    # Add more public instances if needed
+]
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -21,12 +22,13 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 def index():
     return render_template('index.html')
 
-# ---------- HELPER: GET VIDEO INFO ----------
+# ---------- HELPER: FETCH VIDEO INFO ----------
 def fetch_video_info(video_id):
     for instance in INVIDIOUS_INSTANCES:
         try:
-            resp = requests.get(f"{instance}/api/v1/videos/{video_id}", timeout=10)
+            resp = requests.get(f"{instance}/api/v1/videos/{video_id}", timeout=5)
             if resp.status_code == 200:
+                print(f"Invidious succeeded: {instance}")
                 return resp.json()
         except Exception as e:
             print(f"Invidious instance failed: {instance} -> {e}")
@@ -40,20 +42,31 @@ def validate():
         return jsonify({'error': 'No URL provided'}), 400
 
     try:
-        video_id = url.split("watch?v=")[-1].split("&")[0] if "watch?v=" in url else url.split("/")[-1]
-        data = fetch_video_info(video_id)
+        # Extract video ID
+        if "watch?v=" in url:
+            video_id = url.split("watch?v=")[-1].split("&")[0]
+        else:
+            video_id = url.split("/")[-1]
 
-        info = {
-            "title": data.get("title"),
-            "author": data.get("author"),
-            "thumbnail": data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else None,
-            "formats": data.get("adaptiveFormats") or data.get("videoFormats") or [],
-        }
-        return jsonify(info)
+        try:
+            # First try Invidious
+            data = fetch_video_info(video_id)
+            info = {
+                "title": data.get("title"),
+                "author": data.get("author"),
+                "thumbnail": data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else None,
+                "formats": data.get("adaptiveFormats") or data.get("videoFormats") or [],
+            }
+            return jsonify(info)
+        except Exception:
+            print("All Invidious instances failed. Falling back to yt-dlp.")
+            info = get_media_info(url)  # yt-dlp fallback
+            return jsonify(info)
+
     except Exception as e:
         print("Error (validate):", e)
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to fetch video info'}), 500
 
 # ---------- DOWNLOAD VIDEO ----------
 @app.route('/download', methods=['GET'])
@@ -64,7 +77,7 @@ def download():
         return jsonify({'error': 'Missing parameters'}), 400
 
     try:
-        file_path = download_media(url, format_id)  # from your downloader.py
+        file_path = download_media(url, format_id)  # from downloader.py
 
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
@@ -98,7 +111,7 @@ def download_mp3():
         return jsonify({'error': 'Missing URL'}), 400
 
     try:
-        file_path = download_audio(url)  # from your downloader.py
+        file_path = download_audio(url)  # from downloader.py
 
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
