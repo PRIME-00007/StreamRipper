@@ -1,94 +1,69 @@
+import yt_dlp
 import os
-import requests
 
-# Directory for downloads
-OUTPUT_DIR = "downloads"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# Choose a free Invidious instance
-INVIDIOUS_BASE = "https://invidious.snopyta.org"
-
-
-def get_video_id(url):
-    """Extract YouTube video ID from URL."""
-    if "v=" in url:
-        return url.split("v=")[-1].split("&")[0]
-    elif "youtu.be/" in url:
-        return url.split("youtu.be/")[-1].split("?")[0]
-    else:
-        raise ValueError("Invalid YouTube URL")
-
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 def get_media_info(url):
-    """Fetch video info using Invidious API."""
-    video_id = get_video_id(url)
-    api_url = f"{INVIDIOUS_BASE}/api/v1/videos/{video_id}"
-    resp = requests.get(api_url)
-    if resp.status_code != 200:
-        raise Exception("Failed to fetch video info from Invidious")
-
-    data = resp.json()
-    formats = []
-
-    # adaptiveFormats contains direct video/audio URLs
-    for f in data.get("adaptiveFormats", []):
-        # Only include streams with a URL
-        if not f.get("url"):
-            continue
-
-        if f.get("videoQuality"):
-            label = f"{f['videoQuality']}"
-        else:
-            label = "Audio only"
-
-        filesize = f.get("contentLength")
-        if filesize:
-            size_mb = round(int(filesize) / (1024 * 1024), 2)
-            label += f" ({size_mb} MB)"
-
-        formats.append({
-            "format_id": f.get("itag"),
-            "ext": f.get("mimeType", "").split("/")[1],
-            "resolution": label,
-            "url": f.get("url")
-        })
-
-    return {
-        "title": data.get("title"),
-        "thumbnail": data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else None,
-        "formats": formats
+    """Get all available video/audio formats for a URL using yt-dlp."""
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
     }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+        formats = []
+        for f in info.get('formats', []):
+            if f.get('vcodec') != 'none' or f.get('acodec') != 'none':
+                label = f"{f.get('height', 'Audio')}p" if f.get('vcodec') != 'none' else "Audio only"
+                size = f.get('filesize') or f.get('filesize_approx')
+                if size:
+                    label += f" ({round(size / (1024 * 1024), 2)} MB)"
+                formats.append({
+                    "format_id": f['format_id'],
+                    "ext": f['ext'],
+                    "resolution": label,
+                })
+
+        return {
+            "title": info.get('title'),
+            "thumbnail": info.get('thumbnail'),
+            "formats": formats
+        }
 
 
 def download_media(url, format_id):
-    """Download selected video/audio by fetching the direct URL."""
-    info = get_media_info(url)
-    stream = next((f for f in info["formats"] if str(f["format_id"]) == str(format_id)), None)
-    if not stream:
-        raise Exception("Format ID not found")
+    """Download selected video/audio format."""
+    ydl_opts = {
+        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
+        'format': format_id,
+        'noplaylist': True,
+        'merge_output_format': 'mp4',  # video+audio merged
+    }
 
-    filename = os.path.join(OUTPUT_DIR, f"{info['title']}.{stream['ext']}")
-    # Download the file
-    with requests.get(stream["url"], stream=True) as r:
-        r.raise_for_status()
-        with open(filename, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-    return filename
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info)
+        return file_path
 
 
 def download_audio(url):
     """Download best audio as mp3."""
-    info = get_media_info(url)
-    # Choose first audio-only stream
-    stream = next((f for f in info["formats"] if "audio" in f["ext"]), None)
-    if not stream:
-        raise Exception("No audio stream found")
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
+        'noplaylist': True,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+    }
 
-    filename = os.path.join(OUTPUT_DIR, f"{info['title']}.mp3")
-    with requests.get(stream["url"], stream=True) as r:
-        r.raise_for_status()
-        with open(filename, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-    return filename
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = os.path.splitext(ydl.prepare_filename(info))[0] + '.mp3'
+        return filename
