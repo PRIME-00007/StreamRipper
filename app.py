@@ -1,9 +1,13 @@
-from flask import Flask, render_template, request, send_file, jsonify, after_this_request
-from downloader import download_media, get_media_info, download_audio
+from flask import Flask, render_template, request, jsonify
+import requests
 import os
 import traceback
 
 app = Flask(__name__)
+
+# You can pick a public Invidious instance. Example:
+INVIDIOUS_INSTANCE = "https://invidious.snopyta.org"  # free public instance
+# see https://github.com/iv-org/invidious/wiki/Invidious-Instances for more
 
 # ---------- INDEX ----------
 @app.route('/')
@@ -18,85 +22,78 @@ def validate():
         return jsonify({'error': 'No URL provided'}), 400
 
     try:
-        info = get_media_info(url)
+        # Extract video ID from URL
+        if "watch?v=" in url:
+            video_id = url.split("watch?v=")[-1].split("&")[0]
+        else:
+            video_id = url.split("/")[-1]
+
+        api_url = f"{INVIDIOUS_INSTANCE}/api/v1/videos/{video_id}"
+        resp = requests.get(api_url, timeout=10)
+
+        if resp.status_code != 200:
+            return jsonify({'error': f"Failed to fetch video info ({resp.status_code})"}), 500
+
+        data = resp.json()
+
+        # Return essential info + formats
+        info = {
+            "title": data.get("title"),
+            "author": data.get("author"),
+            "thumbnail": data.get("videoThumbnails")[0]["url"] if data.get("videoThumbnails") else None,
+            "formats": data.get("adaptiveFormats") or data.get("videoFormats") or [],
+        }
+
         return jsonify(info)
     except Exception as e:
-        print("YT-DLP Error (validate):", e)
+        print("Invidious Error (validate):", e)
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-# ---------- DOWNLOAD VIDEO ----------
-@app.route('/download', methods=['GET'])
-def download():
+# ---------- GET DOWNLOAD LINK ----------
+@app.route('/download_link', methods=['GET'])
+def download_link():
     url = request.args.get('url')
     format_id = request.args.get('format')
-
     if not url or not format_id:
-        return "Missing parameters", 400
+        return jsonify({'error': 'Missing parameters'}), 400
 
     try:
-        file_path = download_media(url, format_id)
+        # Extract video ID from URL
+        if "watch?v=" in url:
+            video_id = url.split("watch?v=")[-1].split("&")[0]
+        else:
+            video_id = url.split("/")[-1]
 
-        if not os.path.exists(file_path):
-            return "File not found", 404
+        api_url = f"{INVIDIOUS_INSTANCE}/api/v1/videos/{video_id}"
+        resp = requests.get(api_url, timeout=10)
+        if resp.status_code != 200:
+            return jsonify({'error': f"Failed to fetch video info ({resp.status_code})"}), 500
 
-        @after_this_request
-        def cleanup(response):
-            try:
-                os.remove(file_path)
-                print(f"Deleted temporary file: {file_path}")
-            except Exception as e:
-                print("Cleanup error:", e)
-                traceback.print_exc()
-            return response
+        data = resp.json()
+        formats = data.get("adaptiveFormats") or data.get("videoFormats") or []
 
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=os.path.basename(file_path),
-            mimetype='application/octet-stream'
-        )
+        # Find the selected format
+        selected = None
+        for f in formats:
+            if str(f.get("itag")) == str(format_id):
+                selected = f
+                break
 
-    except Exception as e:
-        print("YT-DLP Error (download video):", e)
-        traceback.print_exc()
-        return str(e), 500
+        if not selected:
+            return jsonify({'error': 'Format not found'}), 404
 
-# ---------- DOWNLOAD AUDIO ----------
-@app.route('/download_mp3', methods=['GET'])
-def download_mp3():
-    url = request.args.get('url')
-    if not url:
-        return "Missing URL", 400
-
-    try:
-        file_path = download_audio(url)
-
-        if not os.path.exists(file_path):
-            return "File not found", 404
-
-        @after_this_request
-        def cleanup(response):
-            try:
-                os.remove(file_path)
-                print(f"Deleted temporary file: {file_path}")
-            except Exception as e:
-                print("Cleanup error:", e)
-                traceback.print_exc()
-            return response
-
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=os.path.basename(file_path),
-            mimetype='audio/mpeg'
-        )
+        return jsonify({
+            "url": selected.get("url"),
+            "mimeType": selected.get("mimeType"),
+            "quality": selected.get("qualityLabel") or selected.get("quality"),
+        })
 
     except Exception as e:
-        print("YT-DLP Error (download audio):", e)
+        print("Invidious Error (download link):", e)
         traceback.print_exc()
-        return str(e), 500
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Render provides PORT via env variable
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
