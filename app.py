@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, send_file, jsonify, after_thi
 import os
 import traceback
 import requests
-from downloader import download_media, download_audio, get_media_info  # your existing downloader logic
+from downloader import download_media, download_audio, get_media_info  # your downloader logic
 
 app = Flask(__name__)
 
@@ -11,7 +11,7 @@ INVIDIOUS_INSTANCES = [
     "https://invidious.snopyta.org",
     "https://yewtu.be",
     "https://vid.puffyan.us",
-    # Add more public instances if needed
+    # add more instances if needed
 ]
 
 DOWNLOAD_DIR = "downloads"
@@ -24,12 +24,15 @@ def index():
 
 # ---------- HELPER: FETCH VIDEO INFO ----------
 def fetch_video_info(video_id):
+    """Try all Invidious instances in order, return JSON if any succeeds."""
     for instance in INVIDIOUS_INSTANCES:
         try:
             resp = requests.get(f"{instance}/api/v1/videos/{video_id}", timeout=5)
             if resp.status_code == 200:
                 print(f"Invidious succeeded: {instance}")
                 return resp.json()
+            else:
+                print(f"Invidious instance {instance} returned status {resp.status_code}")
         except Exception as e:
             print(f"Invidious instance failed: {instance} -> {e}")
     raise Exception("All Invidious instances failed.")
@@ -60,7 +63,7 @@ def validate():
             return jsonify(info)
         except Exception:
             print("All Invidious instances failed. Falling back to yt-dlp.")
-            info = get_media_info(url)  # yt-dlp fallback
+            info = get_media_info(url)  # fallback
             return jsonify(info)
 
     except Exception as e:
@@ -77,7 +80,7 @@ def download():
         return jsonify({'error': 'Missing parameters'}), 400
 
     try:
-        file_path = download_media(url, format_id)  # from downloader.py
+        file_path = download_media(url, format_id)
 
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
@@ -98,6 +101,7 @@ def download():
             download_name=os.path.basename(file_path),
             mimetype='application/octet-stream'
         )
+
     except Exception as e:
         print("Error (download video):", e)
         traceback.print_exc()
@@ -111,7 +115,7 @@ def download_mp3():
         return jsonify({'error': 'Missing URL'}), 400
 
     try:
-        file_path = download_audio(url)  # from downloader.py
+        file_path = download_audio(url)
 
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
@@ -132,11 +136,13 @@ def download_mp3():
             download_name=os.path.basename(file_path),
             mimetype='audio/mpeg'
         )
+
     except Exception as e:
         print("Error (download audio):", e)
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+# ---------- RUN ----------
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
