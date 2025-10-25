@@ -1,9 +1,5 @@
-Flask
-requests
-openai
-pandas
-numpy
-gspread
-Flask-SQLAlchemy
-python-dotenv
-tzdata
+Flask==3.1.1
+requests==2.31.0
+httpx==0.28.1
+yt-dlp==2025.8.27
+python-dotenv==1.1.1
