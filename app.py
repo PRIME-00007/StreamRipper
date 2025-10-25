@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, send_file, jsonify, after_thi
 import os
 import traceback
 import requests
-from downloader import download_media, download_audio, get_media_info  # your downloader logic
+from downloader import download_media, download_audio, get_media_info
 
 app = Flask(__name__)
 
@@ -11,7 +11,8 @@ INVIDIOUS_INSTANCES = [
     "https://invidious.snopyta.org",
     "https://yewtu.be",
     "https://vid.puffyan.us",
-    # add more instances if needed
+    "https://vid.tube",
+    "https://invidious.site"
 ]
 
 DOWNLOAD_DIR = "downloads"
@@ -24,15 +25,12 @@ def index():
 
 # ---------- HELPER: FETCH VIDEO INFO ----------
 def fetch_video_info(video_id):
-    """Try all Invidious instances in order, return JSON if any succeeds."""
     for instance in INVIDIOUS_INSTANCES:
         try:
             resp = requests.get(f"{instance}/api/v1/videos/{video_id}", timeout=5)
             if resp.status_code == 200:
                 print(f"Invidious succeeded: {instance}")
                 return resp.json()
-            else:
-                print(f"Invidious instance {instance} returned status {resp.status_code}")
         except Exception as e:
             print(f"Invidious instance failed: {instance} -> {e}")
     raise Exception("All Invidious instances failed.")
@@ -52,7 +50,7 @@ def validate():
             video_id = url.split("/")[-1]
 
         try:
-            # First try Invidious
+            # Try Invidious first
             data = fetch_video_info(video_id)
             info = {
                 "title": data.get("title"),
@@ -63,7 +61,7 @@ def validate():
             return jsonify(info)
         except Exception:
             print("All Invidious instances failed. Falling back to yt-dlp.")
-            info = get_media_info(url)  # fallback
+            info = get_media_info(url)
             return jsonify(info)
 
     except Exception as e:
@@ -101,7 +99,6 @@ def download():
             download_name=os.path.basename(file_path),
             mimetype='application/octet-stream'
         )
-
     except Exception as e:
         print("Error (download video):", e)
         traceback.print_exc()
@@ -136,13 +133,11 @@ def download_mp3():
             download_name=os.path.basename(file_path),
             mimetype='audio/mpeg'
         )
-
     except Exception as e:
         print("Error (download audio):", e)
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-# ---------- RUN ----------
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
