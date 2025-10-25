@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+{% block title %}StreamRipper{% endblock %}
+
+{% block body %}
+<header class="site-header">
+  <div class="logo-container">
+    <h1 class="logo-text">
+      <i class="ri-youtube-fill yt-icon"></i>
+      StreamRipper
+    </h1>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <h2>Download Your Media</h2>
+    <p>From YouTube & YouTube Music. Fast & Free.</p>
+
+    <!-- INPUT + FETCH BUTTON -->
+    <div class="input-section">
+      <input id="videoURL" type="text" placeholder="Paste your YouTube or YouTube Music link here">
+      <button id="btnFetch" type="button" class="gradient-btn">Fetch Media</button>
+
+      <!-- Loader centered under Fetch button -->
+      <div id="loader" class="result-loader" style="display:none;">
+        <div class="spinner"></div>
+        <div class="loader-text">Processing…</div>
+      </div>
+    </div>
+
+    <!-- RESULT BOX -->
+    <div id="resultBox" class="result-box" style="display:none;">
+      <img id="thumbnail" class="result-thumb" src="" alt="thumbnail">
+      <div class="result-meta">
+        <h3 id="title" class="result-title"></h3>
+        <p id="duration" class="result-duration"></p>
+
+        <label for="formatList">Choose quality / format</label>
+        <select id="formatList" class="format-select"></select>
+
+        <div class="result-buttons">
+          <button id="btnDownload" type="button" class="gradient-btn">Download (selected)</button>
+          <button id="btnDownloadAudio" type="button" class="gradient-btn">Download MP3</button>
+        </div>
+
+        <!-- Disclaimer note under buttons -->
+        <p id="disclaimer" class="note" style="display:none;">
+          <em>Note: After hitting “Download”, the browser may not show the progress bar immediately — but your download has started.</em>
+        </p>
+      </div>
+    </div>
+
+    <p class="status" id="status">Waiting for link...</p>
+  </section>
+
+  <footer>
+    <p>Created by <a href="https://akoviantech.netlify.app/" target="_blank">Akovian Technologies</a> © 2025</p>
+  </footer>
+</main>
+
+<script>
+const btnFetch = document.getElementById('btnFetch');
+const videoURL = document.getElementById('videoURL');
+const loader = document.getElementById('loader');
+const formatList = document.getElementById('formatList');
+const resultBox = document.getElementById('resultBox');
+const status = document.getElementById('status');
+const btnDownload = document.getElementById('btnDownload');
+const btnDownloadAudio = document.getElementById('btnDownloadAudio');
+const disclaimer = document.getElementById('disclaimer');
+
+// ====== Loader ======
+function showLoader(text) {
+  loader.style.display = 'flex';
+  loader.querySelector('.loader-text').textContent = text;
+}
+function hideLoader() {
+  loader.style.display = 'none';
+}
+
+// ====== Fetch Video Info ======
+btnFetch.addEventListener('click', async () => {
+  const url = videoURL.value.trim();
+  if (!url) return alert("Please paste a YouTube link first!");
+
+  disclaimer.style.display = 'none';
+  showLoader('Fetching video info...');
+
+  try {
+    const formData = new FormData();
+    formData.append('url', url);
+    const res = await fetch('/validate', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    formatList.innerHTML = '';
+    data.formats.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.format_id;
+      opt.textContent = `${f.resolution} (${f.ext})`;
+      formatList.appendChild(opt);
+    });
+
+    document.getElementById('title').textContent = data.title;
+    document.getElementById('thumbnail').src = data.thumbnail;
+    document.getElementById('duration').textContent = data.duration || '';
+    status.textContent = 'Select a format and download.';
+    resultBox.style.display = 'flex';
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    hideLoader();
+  }
+});
+
+// ====== Download Buttons ======
+btnDownload.addEventListener('click', () => {
+  const selected = formatList.value;
+  if (!selected) return alert("Please select a format first.");
+
+  disclaimer.style.display = 'block';
+  showLoader('Preparing video download...');
+  const downloadUrl = `/download?url=${encodeURIComponent(videoURL.value)}&format=${encodeURIComponent(selected)}`;
+  window.location.href = downloadUrl;
+  setTimeout(hideLoader, 4000);
+});
+
+btnDownloadAudio.addEventListener('click', () => {
+  disclaimer.style.display = 'block';
+  showLoader('Preparing audio download...');
+  const downloadUrl = `/download_mp3?url=${encodeURIComponent(videoURL.value)}`;
+  window.location.href = downloadUrl;
+  setTimeout(hideLoader, 4000);
+});
+</script>
+{% endblock %}
