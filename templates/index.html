@@ -84,6 +84,9 @@ btnFetch.addEventListener('click', async () => {
   if (!url) return alert("Please paste a YouTube link first!");
 
   disclaimer.style.display = 'none';
+  formatList.innerHTML = '';
+  resultBox.style.display = 'none';
+  status.textContent = 'Fetching video info...';
   showLoader('Fetching video info...');
 
   try {
@@ -94,21 +97,27 @@ btnFetch.addEventListener('click', async () => {
 
     if (data.error) throw new Error(data.error);
 
-    formatList.innerHTML = '';
+    // Populate formats
     data.formats.forEach(f => {
       const opt = document.createElement('option');
       opt.value = f.format_id;
-      opt.textContent = `${f.resolution} (${f.ext})`;
+      // Use resolution if exists, else fallback
+      const resolution = f.resolution || f.qualityLabel || f.quality || 'Unknown';
+      opt.textContent = `${resolution} (${f.ext || f.mimeType || 'unknown'})`;
       formatList.appendChild(opt);
     });
 
     document.getElementById('title').textContent = data.title;
-    document.getElementById('thumbnail').src = data.thumbnail;
+    document.getElementById('thumbnail').src = data.thumbnail || '';
     document.getElementById('duration').textContent = data.duration || '';
     status.textContent = 'Select a format and download.';
     resultBox.style.display = 'flex';
   } catch (err) {
-    alert(err.message);
+    // Clear formats and show error
+    formatList.innerHTML = '';
+    resultBox.style.display = 'none';
+    status.textContent = 'Failed to fetch video info.';
+    alert("Error fetching video info: " + err.message);
   } finally {
     hideLoader();
   }
